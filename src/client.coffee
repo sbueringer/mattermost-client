@@ -1,6 +1,9 @@
 request     = require 'request'
+FormData = require('form-data');
 querystring = require 'querystring'
 WebSocket   = require 'ws'
+HttpsProxyAgent = require 'https-proxy-agent'
+url             = require 'url'
 TextEncoder = require 'text-encoding'
 Log            = require 'log'
 {EventEmitter} = require 'events'
@@ -73,8 +76,8 @@ class Client extends EventEmitter
             @logger.debug 'Found '+Object.keys(@teams).length+' teams.'
             for t in @teams
                 @logger.debug "Testing #{t.name} == #{@group}"
-                if t.name.toLowerCase() == @group.toLowerCase()
-                    @logger.debug "Found team! #{t.id}"
+                if t.name == @group
+                    @logger.debug "Found team! #{t.name} with id #{t.id}"
                     @teamID = t.id
                     break
             @preferences = data.preferences
@@ -97,6 +100,8 @@ class Client extends EventEmitter
     _onChannels: (data, headers) =>
         if data && not data.error
             @channels = data
+            for c of @channels
+              @logger.info 'Channels: Name: ' + @channels[c].name + ' DisplayName: ' + @channels[c].display_name
             @emit 'channelsLoaded', { channels: @channels }
         else
             @logger.error 'Failed to get subscribed channels list from server.'
@@ -122,9 +127,28 @@ class Client extends EventEmitter
             return
         @_connecting = true
         @logger.info 'Connecting...'
-        options =
-            rejectUnauthorized: tlsverify
-            headers: {authorization: "BEARER " + @token}
+
+        if process.env.http_proxy
+            # Start patch for proxy.....
+            @proxy = process.env.http_proxy
+            @logger.info 'using proxy server ' + @proxy
+
+            @opts = url.parse(@proxy)
+
+            # IMPORTANT! Set the `secureEndpoint` option to `false` when connecting
+            #            over "ws://", but `true` when connecting over "wss://"
+            @opts.secureEndpoint = useTLS
+            @agent = new HttpsProxyAgent(@opts)
+
+            options =
+                rejectUnauthorized: tlsverify
+                headers: {authorization: "BEARER " + @token}
+                agent : @agent
+        else
+            options =
+                rejectUnauthorized: tlsverify
+                headers: {authorization: "BEARER " + @token}
+         # End patch for proxy
 
         # Set up websocket connection to server
         @ws = new WebSocket @socketUrl, options
@@ -202,6 +226,7 @@ class Client extends EventEmitter
     onMessage: (message) ->
         @emit 'raw_message', message
         m = new Message message
+        @logger.info message
         switch message.event
             when 'ping'
                 # Deprecated
@@ -291,13 +316,14 @@ class Client extends EventEmitter
         chunks = msg.match new RegExp("(.|[\r\n]){1,#{message_limit}}","g")
         return chunks
 
-    postMessage: (msg, channelID) ->
+    postMessage: (msg, channelID, file_ids = []) ->
         postData =
             message: msg
             filenames: []
             create_at: Date.now()
             user_id: @self.id
             channel_id: channelID
+            file_ids: file_ids
 
         # break apart long messages
         chunks = @_chunkMessage(postData.message)
@@ -322,6 +348,38 @@ class Client extends EventEmitter
             @logger.debug 'Channel header updated.'
             return true
 
+    uploadFile: (channelID, file, callback) ->
+
+        path = @teamRoute() + '/files/upload'
+
+        formData =
+            channel_id: channelID,
+            files:
+                value: file
+                options:
+                    filename: 'grafana.png',
+                    contentType: 'image/png'
+
+        options =
+            uri: (if useTLS then 'https://' else 'http://') + @host + (if @options.httpPort? then ':' + @options.httpPort else "") + apiPrefix + path
+            method: 'POST'
+            formData: formData
+            rejectUnauthorized: tlsverify
+            headers:
+                Authorization: 'BEARER ' + @token if @token
+        @logger.debug "POST #{path}"
+        request options, (error, res, value) ->
+            if error
+                if callback? then callback(res, {'id': null, 'error': error.errno}, {})
+            else
+                if callback?
+                    if res.statusCode is 200
+                        if typeof value == 'string'
+                            value = JSON.parse(value)
+                        callback(res, value, res.headers)
+                    else
+                        callback(res, {'id': null, 'error': 'API response: ' + res.statusCode}, res.headers)
+
     # Private functions
     #
     _send: (message) ->
@@ -333,7 +391,6 @@ class Client extends EventEmitter
             @_pending[message.id] = message
             @ws.send JSON.stringify(message)
             return message
-
 
     _apiCall: (method, path, params, callback) ->
         post_data = ''
