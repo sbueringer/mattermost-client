@@ -1,25 +1,25 @@
 {
-  "name": "mattermost-client",
+  "name": "sbueringer-mattermost-client",
   "version": "3.7.3",
-  "description": "Mattermost client",
+  "author": "Stefan Bueringer <npm.sbueringer@gmail.com>",
+  "contributors": [],
+  "description": "Mattermost Client",
+  "keywords": [
+    "mattermost",
+    "chat"
+  ],
   "main": "./src/client",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/loafoe/mattermost-client.git"
+    "url": "https://github.com/sbueringer/mattermost-client.git"
   },
-  "keywords": [
-    "mattermost",
-    "chat"
-  ],
-  "author": "Andy Lo-A-Foe",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/loafoe/mattermost-client/issues"
+    "url": "https://github.com/sbueringer/mattermost-client/issues"
   },
-  "homepage": "https://github.com/loafoe/mattermost-client#readme",
   "dependencies": {
     "coffee-script": "^1.10.0",
     "form-data": "^2.1.4",
